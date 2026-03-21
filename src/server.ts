@@ -1,13 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { MarketClient } from './market-client.js'
+import { MppClient } from './mpp-client.js'
 
 export function createServer(gatewayUrl: string | null): McpServer {
   const market = new MarketClient(gatewayUrl)
+  const mpp = new MppClient()
 
   const server = new McpServer({
-    name: 'l402-gateway',
-    version: '1.0.0',
+    name: 'mpp-gateway',
+    version: '1.1.0',
   })
 
   // -----------------------------------------------------------------------
@@ -191,6 +193,200 @@ export function createServer(gatewayUrl: string | null): McpServer {
         let data: unknown
         try { data = JSON.parse(body) } catch { data = body }
         return text(JSON.stringify({ status: res.status, data }, null, 2))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return text(JSON.stringify({ error: msg }, null, 2))
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Tool: mpp_request_challenge
+  // -----------------------------------------------------------------------
+  server.tool(
+    'mpp_request_challenge',
+    'Probe an MPP-protected URL and return the payment challenge. If the server returns HTTP 402, parses the WWW-Authenticate header and returns the challenge details including the Lightning invoice to pay, challenge_id, and amount. Works with any MPP-compatible server (including L402-compatible ones). After calling this, use wdk_mpp_pay to settle the invoice, then mpp_submit_credential to access the resource.',
+    {
+      url: z
+        .string()
+        .describe('URL of the MPP-protected resource to access'),
+    },
+    async ({ url }) => {
+      try {
+        const challenge = await mpp.requestChallenge(url)
+        return text(
+          JSON.stringify(
+            {
+              ...challenge,
+              next_step: challenge.invoice
+                ? 'Pay the invoice via wdk_mpp_pay, then call mpp_submit_credential with the returned credential'
+                : 'No Lightning invoice in challenge — check method and use appropriate payment tool',
+            },
+            null,
+            2
+          )
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return text(JSON.stringify({ error: msg }, null, 2))
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Tool: mpp_submit_credential
+  // -----------------------------------------------------------------------
+  server.tool(
+    'mpp_submit_credential',
+    'Submit an MPP payment credential to access a protected resource. Call this after wdk_mpp_pay returns a credential JSON. Sends both the MPP Payment-Authorization header and the L402-compatible Authorization header for maximum server compatibility. Returns the resource data and a receipt if the server issues one.',
+    {
+      url: z
+        .string()
+        .describe('URL of the MPP-protected resource (same URL used in mpp_request_challenge)'),
+      credential: z
+        .string()
+        .describe('Credential JSON string returned by wdk_mpp_pay'),
+    },
+    async ({ url, credential: credentialStr }) => {
+      try {
+        const credential = mpp.deserializeCredential(credentialStr)
+        const result = await mpp.submitCredential(url, credential)
+        return text(
+          JSON.stringify(
+            {
+              ok: result.ok,
+              status: result.status,
+              receipt: result.receipt ?? null,
+              data: result.data,
+            },
+            null,
+            2
+          )
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return text(JSON.stringify({ error: msg }, null, 2))
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Tool: mpp_parse_challenge_header
+  // -----------------------------------------------------------------------
+  server.tool(
+    'mpp_parse_challenge_header',
+    'Parse a raw WWW-Authenticate header value from an HTTP 402 response into a structured MPP challenge object. Use this when you have the raw header string (e.g. from a direct fetch) and need to extract the invoice, challenge_id, and payment details without making a new HTTP request.',
+    {
+      url: z
+        .string()
+        .describe('The URL that issued the 402 (used as context in the challenge object)'),
+      www_authenticate: z
+        .string()
+        .describe('Raw value of the WWW-Authenticate header from the 402 response'),
+    },
+    async ({ url, www_authenticate }) => {
+      try {
+        const challenge = mpp.parseChallenge(url, www_authenticate)
+        return text(JSON.stringify(challenge, null, 2))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return text(JSON.stringify({ error: msg }, null, 2))
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Tool: search_paid_apis
+  // -----------------------------------------------------------------------
+  server.tool(
+    'search_paid_apis',
+    'Search the 402index.io directory for payment-gated APIs accessible via L402 (Lightning), MPP (Stripe/Tempo), or x402 (Base/Solana) protocols. Returns endpoint URLs, pricing, health status, and protocol type — ready to call via mpp_request_challenge or l402_request_challenge. Use this to discover premium data feeds, on-chain analytics, market data, and AI services payable with Bitcoin micropayments.',
+    {
+      query: z
+        .string()
+        .optional()
+        .describe('Search keyword (e.g. "bitcoin price", "on-chain analytics", "sentiment", "weather")'),
+      protocol: z
+        .enum(['L402', 'x402', 'MPP'])
+        .optional()
+        .describe('Filter by payment protocol. L402 = Lightning Network, MPP = Stripe/Tempo, x402 = Base/Solana'),
+      category: z
+        .string()
+        .optional()
+        .describe('Category filter (e.g. "finance", "crypto", "weather", "ai", "data")'),
+      health: z
+        .enum(['healthy', 'degraded', 'unknown'])
+        .optional()
+        .describe('Filter by endpoint health status (default: all)'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe('Max results to return (default: 10)'),
+    },
+    async ({ query, protocol, category, health, limit = 10 }) => {
+      try {
+        const params = new URLSearchParams()
+        if (query)    params.set('search', query)
+        if (protocol) params.set('protocol', protocol)
+        if (category) params.set('category', category)
+        if (health)   params.set('health', health)
+        params.set('limit', String(limit))
+
+        const url = `https://402index.io/api/v1/services?${params.toString()}`
+        const res = await fetch(url, {
+          headers: { 'Accept': 'application/json', 'User-Agent': 'kaleidoagent/1.0' },
+          signal: AbortSignal.timeout(10_000),
+        })
+
+        if (!res.ok) {
+          return text(JSON.stringify({ error: `402index.io returned ${res.status}` }, null, 2))
+        }
+
+        const data = await res.json() as {
+          services?: Array<{
+            id?: string
+            name?: string
+            description?: string
+            url?: string
+            protocol?: string
+            pricing?: { usd?: number; sats?: number }
+            category?: string
+            health?: string
+            uptime_pct?: number
+            latency_ms?: number
+          }>
+          total?: number
+        }
+
+        const services = (data.services ?? []).map(s => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          url: s.url,
+          protocol: s.protocol,
+          price_usd: s.pricing?.usd ?? null,
+          price_sats: s.pricing?.sats ?? null,
+          category: s.category,
+          health: s.health,
+          uptime_pct: s.uptime_pct ?? null,
+          latency_ms: s.latency_ms ?? null,
+        }))
+
+        return text(
+          JSON.stringify(
+            {
+              total_available: data.total ?? services.length,
+              returned: services.length,
+              services,
+              usage: 'For L402/MPP services: call mpp_request_challenge with the service URL, then pay via wdk_mpp_pay (RLN) or spark_mpp_pay (Spark), then mpp_submit_credential',
+            },
+            null,
+            2,
+          ),
+        )
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         return text(JSON.stringify({ error: msg }, null, 2))

@@ -1,19 +1,27 @@
 {
-  "name": "l402-gateway-mcp",
-  "version": "1.0.0",
-  "description": "MCP server providing L402 Lightning-paid market data tools (prices, OHLCV, sentiment) to AI agents",
+  "name": "mpp-gateway-mcp",
+  "version": "1.2.0",
+  "description": "MCP server providing MPP (Machine Payments Protocol) and L402 Lightning-paid tools to AI agents — market data, payment challenges, credential submission",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
+    "mpp-gateway-mcp": "./dist/index.js",
     "l402-gateway-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:contract": "node --test tests/*.test.mjs",
+    "test": "npm run test:contract"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.1",
+    "kaleido-sdk": "file:../kaleido-sdk/typescript-sdk",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -23,5 +31,13 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaleidoswap/mpp-gateway-mcp"
   }
 }
