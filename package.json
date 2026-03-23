@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.1",
-    "kaleido-sdk": "file:../kaleido-sdk/typescript-sdk",
+    "kaleido-mcp": "github:kaleidoswap/kaleido-mcp",
     "zod": "^3.24.2"
   },
   "devDependencies": {

@@ -1,28 +1,23 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /workspace
 
-# SDK (local file: dep)
-COPY kaleido-sdk/typescript-sdk/package*.json ./kaleido-sdk/typescript-sdk/
-RUN cd kaleido-sdk/typescript-sdk && npm install
-COPY kaleido-sdk/typescript-sdk/ ./kaleido-sdk/typescript-sdk/
-RUN cd kaleido-sdk/typescript-sdk && npm run build:ts
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
-# MCP server
-COPY mpp-gateway-mcp/package*.json ./mpp-gateway-mcp/
-RUN cd mpp-gateway-mcp && npm install
-COPY mpp-gateway-mcp/ ./mpp-gateway-mcp/
-RUN cd mpp-gateway-mcp && npm run build
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build && npm prune --omit=dev
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 WORKDIR /app
 
-COPY --from=builder /workspace/mpp-gateway-mcp/dist ./dist/
-COPY --from=builder /workspace/mpp-gateway-mcp/package.json ./
-COPY --from=builder /workspace/kaleido-sdk/typescript-sdk/dist ../kaleido-sdk/typescript-sdk/dist/
-COPY --from=builder /workspace/kaleido-sdk/typescript-sdk/package.json ../kaleido-sdk/typescript-sdk/
-RUN npm install --omit=dev
+COPY --from=builder /workspace/dist ./dist/
+COPY --from=builder /workspace/package.json ./
+COPY --from=builder /workspace/node_modules ./node_modules/
 
 EXPOSE 3012
 
