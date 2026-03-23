@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.1",
-    "kaleido-mcp": "github:kaleidoswap/kaleido-mcp",
     "zod": "^3.24.2"
   },
   "devDependencies": {
