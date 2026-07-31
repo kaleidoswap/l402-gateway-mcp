@@ -1,5 +1,11 @@
 # mpp-gateway-mcp
 
+> **⚠️ Archived — superseded by [kaleido-mcp](https://github.com/kaleidoswap/kaleido-mcp).**
+> This repo was originally split off kaleido-mcp to work around a flaky transitive dependency build;
+> kaleido-mcp now ships the equivalent `mpp_*`/`l402_*` tools directly (plus market data, wallet,
+> and swap tools in the same connection). Point your MCP client at kaleido-mcp instead; this repo
+> receives no further updates.
+
 MCP server providing **MPP (Machine Payments Protocol)** and **L402 Lightning-paid** tools to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io).
 
 Works out of the box with no configuration using free public APIs (CoinGecko, alternative.me). Agents can also pay for access to any MPP or L402-gated resource autonomously using Lightning — no API keys, no signup.
